@@ -7,7 +7,11 @@ RUN dotnet restore ./LibraryMPT.Api/LibraryMPT.Api.csproj
 
 COPY . .
 
-RUN dotnet publish ./LibraryMPT.Api/LibraryMPT.Api.csproj -c Release -o /app/publish --no-restore
+RUN dotnet publish ./LibraryMPT.Api/LibraryMPT.Api.csproj \
+    -c Release \
+    -o /app/publish \
+    --no-restore \
+    -p:ErrorOnDuplicatePublishOutputFiles=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
