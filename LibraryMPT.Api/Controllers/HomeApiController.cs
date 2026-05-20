@@ -1,0 +1,80 @@
+using LibraryMPT.Api.Extensions;
+using LibraryMPT.Data;
+using LibraryMPT.Models;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace LibraryMPT.Api.Controllers;
+
+[ApiController]
+[Route("api/home")]
+[AllowAnonymous]
+public sealed class HomeApiController : ControllerBase
+{
+    private readonly LibraryContext _context;
+
+    public HomeApiController(LibraryContext context)
+    {
+        _context = context;
+    }
+
+    [HttpGet("index")]
+    public async Task<ActionResult<HomeIndexResponse>> Index()
+    {
+        var totalUsers = await _context
+            .Database.SqlQuery<int>($"SELECT COUNT(*) AS \"Value\" FROM users")
+            .SingleAsync();
+
+        var totalBooks = await _context
+            .Database.SqlQuery<int>($"SELECT COUNT(*) AS \"Value\" FROM books")
+            .SingleAsync();
+
+        var downloads = await _context
+            .Database.SqlQuery<int>(
+                $"""
+                    SELECT COUNT(*) AS "Value"
+                    FROM booklogs
+                    WHERE actiontype = 'DOWNLOAD'
+                """
+            )
+            .SingleAsync();
+
+        var totalWithFile = await _context
+            .Database.SqlQuery<int>(
+                $"""
+                    SELECT COUNT(*) AS "Value"
+                    FROM books
+                    WHERE filepath IS NOT NULL AND LTRIM(RTRIM(filepath)) <> ''
+                """
+            )
+            .SingleAsync();
+
+        var availability =
+            totalBooks > 0 ? (int)Math.Round(totalWithFile * 100.0 / totalBooks) : 100;
+
+        bool? isTwoFactorEnabled = null;
+        var userId = User.GetUserId();
+        var isStudent = User.Identity?.IsAuthenticated == true && User.IsInRole("Student");
+
+        if (isStudent && userId > 0)
+        {
+            isTwoFactorEnabled = await _context
+                .Database.SqlQuery<bool>(
+                    $"SELECT istwofactorenabled AS \"Value\" FROM users WHERE userid = {userId}"
+                )
+                .SingleOrDefaultAsync();
+        }
+
+        return Ok(
+            new HomeIndexResponse
+            {
+                TotalUsers = totalUsers,
+                TotalBooks = totalBooks,
+                Downloads = downloads,
+                Availability = availability,
+                IsTwoFactorEnabled = isTwoFactorEnabled,
+            }
+        );
+    }
+}

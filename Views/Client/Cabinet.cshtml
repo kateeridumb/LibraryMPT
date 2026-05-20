@@ -1,0 +1,247 @@
+@model LibraryMPT.Models.ClientCabinetResponse
+
+@{
+    ViewBag.Title = "Личный кабинет";
+    Layout = "_Layout";
+    var lastRead = Model?.LastRead ?? new List<LibraryMPT.Models.BookWithProgressDto>();
+    var safeLastRead = lastRead.Where(x => x != null && x.Book != null).ToList();
+    var readedBooks = (Model?.ReadedBooks ?? new List<LibraryMPT.Models.Book>())
+        .Where(b => b != null)
+        .ToList();
+    var requestableBooks = (Model?.RequestableBooks ?? new List<LibraryMPT.Models.Book>())
+        .Where(b => b != null)
+        .ToList();
+    var myBookRequests = Model?.MyBookRequests ?? new List<LibraryMPT.Models.BookRequestDto>();
+    var progressByBookId = safeLastRead
+        .GroupBy(x => x.Book.BookID)
+        .ToDictionary(g => g.Key, g => g.First());
+    var isGuest = User.IsInRole("Guest");
+}
+
+<div class="container fade-in">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>
+            <i class="fas fa-user-circle me-2"></i>
+            Личный кабинет
+        </h1>
+        <div class="d-flex gap-2">
+            <a asp-controller="Client" asp-action="Readed" class="btn btn-outline-success">
+                <i class="fas fa-check-circle me-1"></i> Прочитанные
+            </a>
+            <a asp-controller="Client" asp-action="Index" class="btn btn-outline-primary">
+                <i class="fas fa-book me-1"></i> Каталог
+            </a>
+        </div>
+    </div>
+
+    <h5 class="text-muted mb-3">
+        <i class="fas fa-history me-2"></i>Последние читаемые книги
+    </h5>
+
+    @if (!safeLastRead.Any())
+    {
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>
+            Вы ещё не начали читать ни одной книги. Откройте книгу из каталога — прогресс будет сохраняться автоматически.
+        </div>
+    }
+    else
+    {
+        <div class="row row-cols-1 row-cols-md-2 row-cols-lg-4 g-4">
+            @foreach (var item in safeLastRead)
+            {
+                <div class="col">
+                    <div class="card h-100 custom-card">
+                        <div class="book-cover" style="height: 200px; overflow: hidden; background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%);">
+                            <img src="@BookCoverWebUrl.ForAuthenticatedClientCover(Url, item.Book.BookID, item.Book.ImagePath)"
+                                 referrerpolicy="no-referrer"
+                                 class="img-fluid rounded-top w-100 h-100"
+                                 style="object-fit: cover;"
+                                 alt="@item.Book.Title" />
+                        </div>
+                        <div class="card-body">
+                            <h6 class="card-title">@item.Book.Title</h6>
+                            <p class="text-muted small mb-2">
+                                @if (item.Book.Author != null)
+                                {
+                                    @($"{item.Book.Author.FirstName} {item.Book.Author.LastName}")
+                                }
+                                else
+                                {
+                                    <span>Автор не указан</span>
+                                }
+                            </p>
+                            @if (item.Percent.HasValue && item.Percent > 0)
+                            {
+                                <div class="mb-2">
+                                    <div class="d-flex justify-content-between small text-muted mb-1">
+                                        <span>Прогресс</span>
+                                        <span>@item.Percent%</span>
+                                    </div>
+                                    <div class="progress" style="height: 6px;">
+                                        <div class="progress-bar bg-primary" role="progressbar"
+                                             style="width: @(Math.Min(100, item.Percent.Value))%"></div>
+                                    </div>
+                                </div>
+                            }
+                            <div class="d-grid gap-1">
+                                <a asp-controller="Client" asp-action="ReadOnline" asp-route-id="@item.Book.BookID"
+                                   class="btn btn-primary btn-sm">
+                                    <i class="fas fa-book-open me-1"></i>
+                                    @((item.Percent ?? 0) > 0 ? "Продолжить чтение" : "Читать")
+                                </a>
+                                <a asp-controller="Client" asp-action="BookDetails" asp-route-id="@item.Book.BookID"
+                                   class="btn btn-outline-secondary btn-sm">
+                                    <i class="fas fa-info-circle me-1"></i> Подробнее
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    <hr class="my-4" />
+
+    <h5 class="text-muted mb-3">
+        <i class="fas fa-check-circle me-2"></i>Прочитанные книги
+    </h5>
+    @if (!readedBooks.Any())
+    {
+        <div class="alert alert-light border">
+            Пока нет отмеченных прочитанных книг.
+        </div>
+    }
+    else
+    {
+        <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
+            @foreach (var book in readedBooks.Take(18))
+            {
+                <div class="col">
+                    <div class="card h-100 border-0 shadow-sm">
+                        <div class="card-body">
+                            <h6 class="card-title mb-1">@book.Title</h6>
+                            <p class="small text-muted mb-2">
+                                @if (book.Author != null)
+                                {
+                                    @($"{book.Author.FirstName} {book.Author.LastName}")
+                                }
+                                else
+                                {
+                                    <span>Автор не указан</span>
+                                }
+                            </p>
+                            @if (progressByBookId.TryGetValue(book.BookID, out var p) && p.Percent.HasValue)
+                            {
+                                <div class="small text-muted mb-2">Прогресс: @p.Percent%</div>
+                            }
+                            <div class="d-flex gap-2">
+                                <a asp-controller="Client" asp-action="BookDetails" asp-route-id="@book.BookID" class="btn btn-outline-secondary btn-sm">
+                                    Подробнее
+                                </a>
+                                <a asp-controller="Client" asp-action="ReadOnline" asp-route-id="@book.BookID" class="btn btn-primary btn-sm">
+                                    Читать
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    <hr class="my-4" />
+
+    <h5 class="text-muted mb-3">
+        <i class="fas fa-paper-plane me-2"></i>Запрос доступа к конкретной книге
+    </h5>
+    @if (!requestableBooks.Any())
+    {
+        <div class="alert alert-light border">
+            Нет книг, по которым можно отправить новый запрос (либо уже есть активный доступ/заявка).
+        </div>
+    }
+    else
+    {
+        <div class="row row-cols-1 row-cols-md-2 g-3">
+            @foreach (var book in requestableBooks.Take(12))
+            {
+                <div class="col">
+                    <div class="card h-100 border-0 shadow-sm">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                <div>
+                                    <h6 class="card-title mb-1">@book.Title</h6>
+                                    <div class="small text-muted">ID: @book.BookID</div>
+                                </div>
+                                @if (book.RequiresSubscription)
+                                {
+                                    <span class="badge bg-warning text-dark">По подписке</span>
+                                }
+                            </div>
+                            <div class="mt-3 d-flex gap-2">
+                                <a asp-controller="Client" asp-action="BookDetails" asp-route-id="@book.BookID" class="btn btn-outline-secondary btn-sm">
+                                    Открыть
+                                </a>
+                                @if (!isGuest)
+                                {
+                                    <form asp-controller="Client" asp-action="RequestBookAccess" method="post">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="bookId" value="@book.BookID" />
+                                        <button type="submit" class="btn btn-primary btn-sm">Отправить запрос</button>
+                                    </form>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    <hr class="my-4" />
+
+    <h5 class="text-muted mb-3">
+        <i class="fas fa-clipboard-list me-2"></i>Мои заявки на доступ
+    </h5>
+    @if (!myBookRequests.Any())
+    {
+        <div class="alert alert-light border">
+            Вы еще не отправляли заявки на доступ к книгам.
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Книга</th>
+                        <th>Статус</th>
+                        <th>Отправлена</th>
+                        <th>Решение</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var request in myBookRequests)
+                    {
+                        var statusRaw = request.Status ?? "Pending";
+                        var status = statusRaw.ToLowerInvariant();
+                        var badgeClass = status == "approved"
+                            ? "bg-success"
+                            : status == "rejected"
+                                ? "bg-danger"
+                                : "bg-warning text-dark";
+                        <tr>
+                            <td>@request.BookTitle</td>
+                            <td><span class="badge @badgeClass">@statusRaw</span></td>
+                            <td>@request.CreatedAt.ToString("dd.MM.yyyy HH:mm")</td>
+                            <td>@(request.DecidedAt.HasValue ? request.DecidedAt.Value.ToString("dd.MM.yyyy HH:mm") : "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

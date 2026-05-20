@@ -1,0 +1,171 @@
+@model LibraryMPT.Models.InstitutionContractResponse
+
+@{
+    ViewBag.Title = "Договор по подписке";
+    Layout = "_Layout";
+}
+
+<div class="container fade-in">
+    <div class="page-header-modern mb-5">
+        <div class="header-content">
+            <h1 class="page-title">
+                <i class="fas fa-file-signature me-3"></i>Договор по подписке
+            </h1>
+            <p class="page-subtitle">Оформление договора по выбранной подписке и категории доступа</p>
+        </div>
+        <a asp-action="Subscriptions" class="btn btn-back">
+            <i class="fas fa-arrow-left me-2"></i>Назад
+        </a>
+    </div>
+
+    @if (string.IsNullOrWhiteSpace(Model.FacultyName))
+    {
+        <div class="empty-state">
+            <i class="fas fa-inbox"></i>
+            <h4>Договор не сформирован</h4>
+            <p>Не найдена активная заявка на подписку.</p>
+        </div>
+    }
+    else
+    {
+        <div class="contract-paper custom-card">
+            <div class="contract-header">
+                <h3>ДОГОВОР О ПРЕДОСТАВЛЕНИИ ДОСТУПА К БИБЛИОТЕЧНОМУ ФОНДУ</h3>
+                <p class="text-muted mb-0">Стороны договора: библиотека и учебное заведение</p>
+            </div>
+
+            <div class="contract-body">
+                <p class="contract-intro">
+                    Настоящий договор подтверждает предоставление доступа к электронному библиотечному фонду
+                    учебному заведению <strong>@Model.FacultyName</strong> по выбранной подписке.
+                </p>
+
+                <ol class="contract-clauses">
+                    <li>
+                        Подписка: <strong>@Model.SubscriptionName</strong>.
+                    </li>
+                    <li>
+                        Срок действия доступа: с <strong>@Model.StartDate.ToString("dd.MM.yyyy")</strong> по
+                        <strong>@Model.EndDate.ToString("dd.MM.yyyy")</strong>.
+                    </li>
+                    <li>
+                        Количество студентов, для которых предоставляется доступ: <strong>@Model.StudentsCount</strong>.
+                    </li>
+                    <li>
+                        Категории доступа:
+                        <strong>
+                            @if (Model.Categories != null && Model.Categories.Count > 0)
+                            {
+                                @string.Join(", ", Model.Categories.Select(c => c.CategoryName))
+                            }
+                            else
+                            {
+                                <span>не указано</span>
+                            }
+                        </strong>.
+                    </li>
+                    <li>
+                        Представитель учебного заведения:
+                        <strong>@(string.IsNullOrWhiteSpace(Model.RepresentativeFullName) ? "не указано" : Model.RepresentativeFullName)</strong>
+                        <span class="text-muted">(@Model.RepresentativeEmail)</span>.
+                    </li>
+                    <li>
+                        Доступ предоставляется в электронном виде и используется в соответствии с правилами библиотеки
+                        и внутренними регламентами учебного заведения.
+                    </li>
+                </ol>
+            </div>
+
+            <div class="contract-signatures">
+                <div class="signature-block">
+                    <div class="signature-title">Библиотека</div>
+                    <div class="signature-line"></div>
+                    <div class="signature-note">Подпись / М.П.</div>
+                </div>
+                <div class="signature-block">
+                    <div class="signature-title">Учебное заведение</div>
+                    <div class="signature-line"></div>
+                    <div class="signature-note">
+                        @(string.IsNullOrWhiteSpace(Model.RepresentativeFullName) ? "Представитель" : Model.RepresentativeFullName)
+                    </div>
+                </div>
+            </div>
+
+            <div class="contract-footer mt-4 d-flex justify-content-between">
+                <div class="text-muted">
+                    Дата формирования: <strong>@DateTime.Now.ToString("dd.MM.yyyy")</strong>
+                </div>
+                <div>
+                    <button class="btn btn-outline-secondary" onclick="window.print();">
+                        <i class="fas fa-print me-2"></i>Печать
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@section Styles {
+    <style>
+        .contract-paper {
+            padding: 1.75rem;
+            border: 1px solid #dee2e6;
+            background: #fff;
+        }
+
+        .contract-header h3 {
+            margin-bottom: 0.5rem;
+            font-size: 1.15rem;
+            text-align: center;
+            letter-spacing: 0.03em;
+        }
+
+        .contract-body p {
+            line-height: 1.7;
+        }
+
+        .contract-intro {
+            margin-bottom: 1rem;
+        }
+
+        .contract-clauses {
+            margin: 0;
+            padding-left: 1.2rem;
+            line-height: 1.8;
+        }
+
+        .contract-clauses li {
+            margin-bottom: 0.5rem;
+        }
+
+        .contract-signatures {
+            margin-top: 1.75rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+
+        .signature-title {
+            font-weight: 600;
+            margin-bottom: 2.4rem;
+        }
+
+        .signature-line {
+            border-bottom: 1px solid #6c757d;
+            margin-bottom: 0.4rem;
+        }
+
+        .signature-note {
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+
+        @@media (max-width: 768px) {
+            .contract-signatures {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+        }
+    </style>
+}
+

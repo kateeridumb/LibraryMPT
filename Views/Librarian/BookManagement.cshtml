@@ -1,0 +1,139 @@
+@model List<Book>
+@using LibraryMPT.Models
+@{
+    ViewBag.Title = "Книги";
+    Layout = "_Layout";
+    var categories = ViewBag.Categories as List<Category> ?? new List<Category>();
+    var authors = ViewBag.Authors as List<Author> ?? new List<Author>();
+    var selectedCategoryIds = ViewBag.CategoryIds as int[] ?? Array.Empty<int>();
+    int? selectedAuthorId = ViewBag.AuthorId as int?;
+    bool? selectedRequiresSubscription = ViewBag.RequiresSubscription as bool?;
+}
+
+<div class="container fade-in">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">
+            <i class="fas fa-book me-2"></i>Управление книгами
+        </h2>
+        <div class="d-flex gap-2">
+            <a asp-action="Index" class="btn btn-outline-primary">
+                <i class="fas fa-arrow-left"></i> Назад в панель
+            </a>
+            <a asp-action="AddBook" class="btn btn-success">
+                <i class="fas fa-plus"></i> Добавить книгу
+            </a>
+        </div>
+    </div>
+
+    
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="get" class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Поиск по названию</label>
+                    <input type="text" name="search" class="form-control" 
+                           value="@ViewBag.Search" placeholder="Введите название...">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Категории</label>
+                    <select name="categoryIds" multiple class="form-select" size="4" title="Ctrl+клик для выбора нескольких">
+                        @foreach (var cat in categories)
+                        {
+                            if (selectedCategoryIds.Contains(cat.CategoryID))
+                            {
+                                <option value="@cat.CategoryID" selected>@cat.CategoryName</option>
+                            }
+                            else
+                            {
+                                <option value="@cat.CategoryID">@cat.CategoryName</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Автор</label>
+                    <select name="authorId" class="form-select">
+                        <option value="">Все авторы</option>
+                        @foreach (var author in authors)
+                        {
+                            if (selectedAuthorId == author.AuthorID)
+                            {
+                                <option value="@author.AuthorID" selected="selected">@author.FirstName @author.LastName</option>
+                            }
+                            else
+                            {
+                                <option value="@author.AuthorID">@author.FirstName @author.LastName</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">По подписке</label>
+                    <select name="requiresSubscription" class="form-select">
+                        <option value="">Любой</option>
+                        @if (selectedRequiresSubscription == true)
+                        {
+                            <option value="true" selected="selected">Да</option>
+                        }
+                        else
+                        {
+                            <option value="true">Да</option>
+                        }
+                        @if (selectedRequiresSubscription == false)
+                        {
+                            <option value="false" selected="selected">Нет</option>
+                        }
+                        else
+                        {
+                            <option value="false">Нет</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex align-items-end gap-2">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-search"></i> Поиск
+                    </button>
+                    <a asp-action="BookManagement" class="btn btn-secondary">
+                        <i class="fas fa-times"></i> Сброс
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>ID</th>
+                    <th>Название</th>
+                    <th>Категория</th>
+                    <th>Файл</th>
+                    <th class="text-end">Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var b in Model)
+                {
+                    <tr>
+                        <td>@b.BookID</td>
+                        <td><strong>@b.Title</strong></td>
+                        <td>@(b.Categories != null && b.Categories.Count > 0 ? string.Join(", ", b.Categories.Select(c => c.CategoryName)) : "—")</td>
+                        <td>@(b.FilePath ?? "—")</td>
+                        <td class="text-end">
+                            <a asp-action="EditBook" asp-route-id="@b.BookID"
+                               class="btn btn-sm btn-warning me-2">
+                                <i class="fas fa-pen-to-square"></i>
+                            </a>
+                            <a asp-action="DeleteBook" asp-route-id="@b.BookID"
+                               class="btn btn-sm btn-danger"
+                               onclick="return confirm('Удалить книгу?')">
+                                <i class="fas fa-trash"></i>
+                            </a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

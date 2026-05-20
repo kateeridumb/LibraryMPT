@@ -1,0 +1,318 @@
+@model List<LibraryMPT.Models.SubscriptionRequestDto>
+
+@{
+    ViewBag.Title = "Заявки на подписки";
+    Layout = "_Layout";
+    var statusFilter = ViewBag.StatusFilter as string ?? "all";
+    string StatusRu(string? status) => (status ?? "Pending").ToLowerInvariant() switch
+    {
+        "pending" => "Ожидает",
+        "approved" => "Одобрена",
+        "rejected" => "Отклонена",
+        _ => "Неизвестно"
+    };
+    string DurationRu(int? durationDays)
+    {
+        if (!durationDays.HasValue)
+        {
+            return "Не указана";
+        }
+
+        var days = durationDays.Value;
+        var years = days / 365;
+        if (years >= 1)
+        {
+            return $"{years} {(years == 1 ? "год" : years < 5 ? "года" : "лет")}";
+        }
+
+        var months = days / 30;
+        if (months >= 1)
+        {
+            return $"{months} {(months == 1 ? "месяц" : months < 5 ? "месяца" : "месяцев")}";
+        }
+
+        return $"{days} {(days == 1 ? "день" : days < 5 ? "дня" : "дней")}";
+    }
+}
+
+<div class="container fade-in">
+    
+    <div class="page-header-modern mb-5">
+        <div class="header-content">
+            <h1 class="page-title">
+                <i class="fas fa-clipboard-list me-3"></i>Заявки на подписки
+            </h1>
+            <p class="page-subtitle">Рассмотрение заявок на подписки от представителей учебных заведений</p>
+        </div>
+        <a href="@Url.Action("Index", "Librarian")" class="btn btn-back">
+            <i class="fas fa-arrow-left me-2"></i>Назад
+        </a>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success alert-modern alert-dismissible fade show" role="alert">
+            <i class="fas fa-check-circle me-2"></i>@TempData["Success"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger alert-modern alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-circle me-2"></i>@TempData["Error"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (!Model.Any())
+    {
+        <div class="empty-state">
+            <i class="fas fa-inbox"></i>
+            <h4>Нет заявок на рассмотрение</h4>
+            <p>В данный момент нет заявок на подписки, ожидающих одобрения</p>
+        </div>
+    }
+    else
+    {
+        <div class="status-filters mb-4">
+            <a class="status-filter @(statusFilter == "all" ? "active" : "")"
+               asp-action="SubscriptionRequests" asp-route-status="all">Все</a>
+            <a class="status-filter pending @(statusFilter == "pending" ? "active" : "")"
+               asp-action="SubscriptionRequests" asp-route-status="pending">Ожидают</a>
+            <a class="status-filter approved @(statusFilter == "approved" ? "active" : "")"
+               asp-action="SubscriptionRequests" asp-route-status="approved">Одобрены</a>
+            <a class="status-filter rejected @(statusFilter == "rejected" ? "active" : "")"
+               asp-action="SubscriptionRequests" asp-route-status="rejected">Отклонены</a>
+        </div>
+
+        <div class="table-responsive requests-table-wrap">
+            <table class="table table-hover align-middle mb-0 requests-table">
+                <thead>
+                    <tr>
+                        <th scope="col">ID</th>
+                        <th scope="col">Подписка</th>
+                        <th scope="col">Представитель</th>
+                        <th scope="col">Учебное заведение</th>
+                        <th scope="col">Email</th>
+                        <th scope="col">Студентов</th>
+                        <th scope="col">Срок</th>
+                        <th scope="col">Статус</th>
+                        <th scope="col" class="text-end">Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var request in Model)
+                    {
+                        var statusClass = (request.Status ?? "Pending").ToLowerInvariant();
+                        var statusLabel = StatusRu(request.Status);
+                        <tr>
+                            <td class="fw-semibold">#@request.SubscriptionID</td>
+                            <td>@request.SubscriptionName</td>
+                            <td>@(request.RequestedByUsername ?? "Не указан")</td>
+                            <td>@(request.FacultyName ?? "Не указано")</td>
+                            <td>@(request.RequestedByEmail ?? "Не указан")</td>
+                            <td class="students-count">@request.StudentsCount</td>
+                            <td>@DurationRu(request.DurationDays)</td>
+                            <td>
+                                <span class="request-status-badge status-@statusClass">@statusLabel</span>
+                            </td>
+                            <td class="text-end">
+                                @if ((request.Status ?? "Pending") == "Pending")
+                                {
+                                    <div class="request-actions">
+                                        <form asp-action="ApproveSubscription" method="post" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="subscriptionId" value="@request.SubscriptionID" />
+                                            <button type="submit"
+                                                    class="btn btn-success btn-sm"
+                                                    onclick="return confirm('Одобрить заявку на подписку \"@request.SubscriptionName\" для учебного заведения \"@request.FacultyName\"? Подписка будет активирована с сегодняшней даты.');">
+                                                <i class="fas fa-check me-1"></i>Одобрить
+                                            </button>
+                                        </form>
+
+                                        <form asp-action="RejectSubscription" method="post" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="subscriptionId" value="@request.SubscriptionID" />
+                                            <button type="submit"
+                                                    class="btn btn-danger btn-sm"
+                                                    onclick="return confirm('Отклонить заявку на подписку \"@request.SubscriptionName\"?');">
+                                                <i class="fas fa-times me-1"></i>Отклонить
+                                            </button>
+                                        </form>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">—</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@section Styles {
+    <style>
+        
+        .page-header-modern {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 2px solid var(--primary-lightest);
+        }
+
+        .page-title {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary-dark);
+            margin-bottom: 0.5rem;
+        }
+
+        .page-subtitle {
+            color: var(--text-medium);
+            margin-bottom: 0;
+        }
+
+        .btn-back {
+            background: white;
+            color: var(--primary-medium);
+            border: 2px solid var(--primary-light);
+            padding: 0.6rem 1.5rem;
+            border-radius: 50px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+
+        .btn-back:hover {
+            background: var(--primary-medium);
+            color: white;
+            transform: translateX(-3px);
+        }
+
+        
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        .empty-state i {
+            font-size: 4rem;
+            color: var(--text-light);
+            margin-bottom: 1.5rem;
+        }
+
+        .empty-state h4 {
+            color: var(--primary-dark);
+            margin-bottom: 0.75rem;
+        }
+
+        .empty-state p {
+            color: var(--text-medium);
+        }
+
+        
+        .status-filters {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .status-filter {
+            padding: 0.4rem 1rem;
+            border-radius: 999px;
+            background: #f3f4f6;
+            color: #374151;
+            text-decoration: none;
+            font-weight: 600;
+            border: 1px solid transparent;
+        }
+
+        .status-filter.active {
+            background: #0f4c5c;
+            color: white;
+        }
+
+        .status-filter.pending { border-color: #f59e0b; }
+        .status-filter.approved { border-color: #10b981; }
+        .status-filter.rejected { border-color: #ef4444; }
+
+        
+        .requests-table-wrap {
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            padding: 0.5rem;
+        }
+
+        .requests-table th {
+            color: var(--text-medium);
+            font-weight: 700;
+            border-bottom-width: 1px;
+            white-space: nowrap;
+        }
+
+        .requests-table td {
+            vertical-align: middle;
+        }
+
+        .request-status-badge {
+            display: inline-block;
+            padding: 0.3rem 0.7rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+
+        .request-status-badge.status-pending {
+            color: #92400e;
+            background: #fef3c7;
+        }
+
+        .request-status-badge.status-approved {
+            color: #065f46;
+            background: #d1fae5;
+        }
+
+        .request-status-badge.status-rejected {
+            color: #991b1b;
+            background: #fee2e2;
+        }
+
+        .students-count {
+            color: #2ecc71 !important;
+            font-weight: 700 !important;
+            font-size: 1.2rem !important;
+        }
+
+        
+        .request-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+        }
+
+        @@media (max-width: 768px) {
+            .page-header-modern {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 1rem;
+            }
+
+            .request-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
+}
+

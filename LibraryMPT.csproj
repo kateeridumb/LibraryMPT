@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>librarympt-web-6f8b9c0d-1e2f-4a5b-9c8d-7e6f5a4b3c2d</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MailKit" Version="4.9.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.11" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.11">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.14.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="wwwroot\Новая папка\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="LibraryMPT.Api\**\*.cs" />
+    <Compile Remove="LibraryMPT.Tests\**\*.cs" />
+    <Compile Remove="LibraryMPT.MobileClient\**\*" />
+    <Content Remove="LibraryMPT.Api\**\*" />
+    <Content Remove="LibraryMPT.Tests\**\*" />
+    <Content Remove="LibraryMPT.MobileClient\**\*" />
+    <EmbeddedResource Remove="LibraryMPT.Api\**\*" />
+    <EmbeddedResource Remove="LibraryMPT.Tests\**\*" />
+    <EmbeddedResource Remove="LibraryMPT.MobileClient\**\*" />
+    <None Remove="LibraryMPT.Api\**\*" />
+    <None Remove="LibraryMPT.Tests\**\*" />
+    <None Remove="LibraryMPT.MobileClient\**\*" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,886 @@
+using LibraryMPT.Models;
+using LibraryMPT.Services;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+
+namespace LibraryMPT.Controllers
+{
+    [Authorize(Roles = "Admin")]
+    public class AdminController : Controller
+    {
+        private readonly EmailService _emailService;
+        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly ILogger<AdminController> _logger;
+        private readonly IConfiguration _configuration;
+
+        public AdminController(
+            EmailService emailService,
+            IHttpClientFactory httpClientFactory,
+            ILogger<AdminController> logger,
+            IConfiguration configuration)
+        {
+            _emailService = emailService;
+            _httpClientFactory = httpClientFactory;
+            _logger = logger;
+            _configuration = configuration;
+        }
+
+        public async Task<IActionResult> Index()
+        {
+            AdminDashboardStatsDto stats;
+            try
+            {
+                var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+                stats = await apiClient.GetFromJsonAsync<AdminDashboardStatsDto>("api/admin/stats")
+                    ?? new AdminDashboardStatsDto();
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Unauthorized || ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                return RedirectToAction("Login", "Account");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load admin stats from API.");
+                stats = new AdminDashboardStatsDto();
+                TempData["Error"] = "Не удалось загрузить данные панели администратора.";
+            }
+
+            ViewBag.TotalUsers = stats.TotalUsers;
+            ViewBag.AdminCount = stats.AdminCount;
+            ViewBag.LibrarianCount = stats.LibrarianCount;
+            ViewBag.ReaderCount = stats.ReaderCount;
+
+            return View();
+        }
+        public async Task<IActionResult> SecurityDashboard()
+        {
+            AdminSecurityDashboardResponse data;
+            try
+            {
+                var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+                var response = await apiClient.GetAsync("api/admin/security-dashboard");
+                if (!response.IsSuccessStatusCode)
+                {
+                    var body = await response.Content.ReadAsStringAsync();
+                    ViewBag.DashboardError = $"API вернул {response.StatusCode}: {body}";
+                    data = new AdminSecurityDashboardResponse();
+                }
+                else
+                {
+                    data = await response.Content.ReadFromJsonAsync<AdminSecurityDashboardResponse>()
+                        ?? new AdminSecurityDashboardResponse();
+                }
+            }
+            catch (Exception ex)
+            {
+                ViewBag.DashboardError = $"Ошибка загрузки данных мониторинга: {ex.Message}";
+                data = new AdminSecurityDashboardResponse();
+            }
+
+            ViewBag.TotalUsers = data.TotalUsers;
+            ViewBag.TotalBooks = data.TotalBooks;
+            ViewBag.DownloadsLast24h = data.DownloadsLast24h;
+            ViewBag.ReadsLast24h = data.ReadsLast24h;
+            ViewBag.AuditEventsLast24h = data.AuditEventsLast24h;
+            ViewBag.BlockedUsers = data.BlockedUsers;
+            ViewBag.TwoFactorUsers = data.TwoFactorUsers;
+            ViewBag.TwoFactorStudents = data.TwoFactorStudents;
+            ViewBag.ActiveSubscriptions = data.ActiveSubscriptions;
+            ViewBag.PendingSubscriptions = data.PendingSubscriptions;
+            ViewBag.BooksRequiringSubscription = data.BooksRequiringSubscription;
+            ViewBag.DbSizeMb = data.DbSizeMb;
+            ViewBag.LastAudit = data.LastAudit ?? new List<LibraryMPT.Models.AuditLog>();
+            ViewBag.AuditPopular = data.AuditPopular ?? new List<LibraryMPT.Models.AuditSummaryDto>();
+
+            return View();
+        }
+        [HttpGet]
+        public IActionResult RuntimeMetrics()
+        {
+            var process = System.Diagnostics.Process.GetCurrentProcess();
+
+            var data = new
+            {
+                serverTimeUtc = DateTime.UtcNow,
+                workingSetBytes = process.WorkingSet64,
+                gcTotalMemoryBytes = GC.GetTotalMemory(false),
+                processId = process.Id,
+                emailLastDurationMs = EmailService.LastSendDurationMs,
+                emailLastSendUtc = EmailService.LastSendUtc,
+                emailLastError = EmailService.LastSendError
+            };
+
+            return Json(data);
+        }
+
+        public async Task<IActionResult> UserManagement(string search, string roleFilter, string facultyFilter, string statusFilter)
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var data = await apiClient.GetFromJsonAsync<AdminUserManagementResponse>(
+                $"api/admin/user-management?search={Uri.EscapeDataString(search ?? string.Empty)}" +
+                $"&roleFilter={Uri.EscapeDataString(roleFilter ?? string.Empty)}" +
+                $"&facultyFilter={Uri.EscapeDataString(facultyFilter ?? string.Empty)}" +
+                $"&statusFilter={Uri.EscapeDataString(statusFilter ?? string.Empty)}")
+                ?? new AdminUserManagementResponse();
+
+            ViewBag.Search = data.Search;
+            ViewBag.RoleFilter = data.RoleFilter;
+            ViewBag.FacultyFilter = data.FacultyFilter;
+            ViewBag.StatusFilter = data.StatusFilter;
+            ViewBag.Roles = data.Roles;
+            ViewBag.Faculties = data.Faculties;
+            ViewBag.Users = data.Users;
+            return View(data.Users);
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> DecryptLastName(int userId)
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var data = await apiClient.GetFromJsonAsync<DecryptLastNameResponse>($"api/admin/decrypt-last-name/{userId}")
+                ?? new DecryptLastNameResponse { Success = false, Error = "API error." };
+            return Json(new { success = data.Success, lastName = data.LastName, error = data.Error });
+        }
+
+
+        public async Task<IActionResult> RoleAssignment()
+        {
+            try
+            {
+                ViewBag.CurrentUserId = int.Parse(
+                    User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value
+                );
+
+                var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+                var response = await apiClient.GetAsync("api/admin/role-assignment");
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    TempData["Error"] = "Не удалось загрузить данные. Попробуйте позже.";
+                    return View(new List<UserAdminDto>());
+                }
+
+                var data = await response.Content.ReadFromJsonAsync<AdminRoleAssignmentResponse>()
+                    ?? new AdminRoleAssignmentResponse();
+                ViewBag.Roles = data.Roles ?? new List<Role>();
+                return View(data.Users ?? new List<UserAdminDto>());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при загрузке назначения ролей");
+                TempData["Error"] = "Произошла ошибка при загрузке данных.";
+                return View(new List<UserAdminDto>());
+            }
+        }
+
+
+        public async Task<IActionResult> AuditLog(string actionType, string? search, string? sortBy, string? sortDir)
+        {
+            try
+            {
+                var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+                var url = $"api/admin/audit-log?actionType={Uri.EscapeDataString(actionType ?? string.Empty)}" +
+                    $"&search={Uri.EscapeDataString(search ?? string.Empty)}" +
+                    $"&sortBy={Uri.EscapeDataString(sortBy ?? string.Empty)}" +
+                    $"&sortDir={Uri.EscapeDataString(sortDir ?? string.Empty)}";
+                
+                var response = await apiClient.GetAsync(url);
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    TempData["Error"] = "Не удалось загрузить журнал аудита. Попробуйте позже.";
+                    return View(new List<AuditLog>());
+                }
+
+                var data = await response.Content.ReadFromJsonAsync<AdminAuditLogResponse>()
+                    ?? new AdminAuditLogResponse();
+                ViewBag.ActionType = data.ActionType;
+                ViewBag.Search = data.Search;
+                ViewBag.SortBy = data.SortBy;
+                ViewBag.SortDir = data.SortDir;
+                return View(data.Logs ?? new List<AuditLog>());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при загрузке журнала аудита");
+                TempData["Error"] = "Произошла ошибка при загрузке журнала аудита.";
+                return View(new List<AuditLog>());
+            }
+        }
+
+
+        public IActionResult DatabaseBackup()
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var data = apiClient.GetFromJsonAsync<AdminBackupResponse>("api/admin/backups")
+                .GetAwaiter().GetResult() ?? new AdminBackupResponse();
+            ViewBag.BackupFiles = data.BackupFiles
+                .Select(f => (f.Name, f.Date, f.Size, Path.Combine(data.BackupDir, f.Name)))
+                .ToList();
+            ViewBag.BackupDir = data.BackupDir;
+            return View();
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> CreateBackup()
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var response = await apiClient.PostAsync("api/admin/backups/create", null);
+            var payload = await response.Content.ReadFromJsonAsync<ApiCommandResponse>();
+            TempData[payload?.Success == true ? "Success" : "Error"] = payload?.Message ?? "Ошибка создания бэкапа.";
+
+            return RedirectToAction(nameof(DatabaseBackup));
+        }
+
+        public async Task<IActionResult> DownloadBackup(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName))
+                return NotFound();
+
+            var safeName = Path.GetFileName(fileName.Trim());
+            if (string.IsNullOrEmpty(safeName))
+                return NotFound();
+
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var url = $"api/admin/backups/download?fileName={Uri.EscapeDataString(safeName)}";
+            using var response = await apiClient.GetAsync(url);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                return NotFound();
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Скачивание бэкапа: API вернуло {StatusCode} для {FileName}", response.StatusCode, safeName);
+                TempData["Error"] = "Не удалось скачать резервную копию.";
+                return RedirectToAction(nameof(DatabaseBackup));
+            }
+
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            return File(bytes, "application/octet-stream", safeName);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult DeleteBackup(string fileName)
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var response = apiClient.DeleteAsync($"api/admin/backups?fileName={Uri.EscapeDataString(fileName ?? string.Empty)}")
+                .GetAwaiter().GetResult();
+            var payload = response.Content.ReadFromJsonAsync<ApiCommandResponse>().GetAwaiter().GetResult();
+            TempData[payload?.Success == true ? "Success" : "Error"] = payload?.Message ?? "Ошибка удаления бэкапа.";
+            return RedirectToAction(nameof(DatabaseBackup));
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> RestoreBackup(string fileName)
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var response = await apiClient.PostAsync($"api/admin/backups/restore?fileName={Uri.EscapeDataString(fileName ?? string.Empty)}", null);
+            var payload = await response.Content.ReadFromJsonAsync<ApiCommandResponse>();
+            TempData[payload?.Success == true ? "Success" : "Error"] = payload?.Message ?? "Ошибка восстановления.";
+
+            return RedirectToAction(nameof(DatabaseBackup));
+        }
+
+        public async Task<IActionResult> CreateUser()
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var lookups = await apiClient.GetFromJsonAsync<CreateUserLookupsResponse>("api/admin/create-user-lookups")
+                ?? new CreateUserLookupsResponse();
+            ViewBag.Roles = lookups.Roles;
+            ViewBag.Faculties = lookups.Faculties;
+
+            return View();
+        }
+        
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> CreateUser(User user)
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            await apiClient.PostAsJsonAsync("api/admin/users", user);
+
+            return RedirectToAction(nameof(UserManagement));
+        }
+
+        public async Task<IActionResult> EditUser(int id)
+        {
+            try
+            {
+            var currentUserId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+                var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+                var response = await apiClient.GetAsync($"api/admin/users/{id}/edit");
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    TempData["Error"] = "Не удалось загрузить данные пользователя.";
+                return RedirectToAction(nameof(UserManagement));
+            }
+
+                var data = await response.Content.ReadFromJsonAsync<EditUserViewResponse>();
+                if (data?.User == null)
+                {
+                    TempData["Error"] = "Пользователь не найден.";
+                    return RedirectToAction(nameof(UserManagement));
+                }
+
+                ViewBag.DecryptedLastName = data.DecryptedLastName;
+                ViewBag.Roles = data.Roles ?? new List<Role>();
+                ViewBag.Faculties = data.Faculties ?? new List<Faculty>();
+                ViewBag.CanEditFaculty = data.CanEditFaculty;
+                return View(data.User);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при загрузке данных пользователя для редактирования");
+                TempData["Error"] = "Произошла ошибка при загрузке данных пользователя.";
+                return RedirectToAction(nameof(UserManagement));
+            }
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> EditUser(UserAdminDto dto)
+        {
+            var currentUserId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var response = await apiClient.PutAsJsonAsync($"api/admin/users/{dto.UserID}", new UpdateUserRequest
+            {
+                Dto = dto
+            });
+            var payload = await response.Content.ReadFromJsonAsync<ApiCommandResponse>();
+            
+            string? finalSuccess = payload?.Success == true
+                ? payload?.Message ?? "Пользователь успешно обновлен."
+                : null;
+
+            string? finalError = payload?.Success == true
+                ? null
+                : (payload?.Message ?? "Ошибка обновления пользователя.");
+            var setFacultyResponse = await apiClient.PostAsJsonAsync(
+                $"api/admin/users/{dto.UserID}/set-faculty",
+                new SetFacultyRequest { FacultyID = dto.FacultyID });
+
+            ApiCommandResponse? setFacultyPayload = null;
+            try
+            {
+                setFacultyPayload = await setFacultyResponse.Content.ReadFromJsonAsync<ApiCommandResponse>();
+            }
+            catch
+            {
+            }
+
+            if (setFacultyPayload?.Success == true)
+            {
+                finalSuccess = setFacultyPayload.Message ?? finalSuccess ?? "Учебное заведение обновлено.";
+                finalError = null;
+            }
+            else
+            {
+                if (!setFacultyResponse.IsSuccessStatusCode)
+                {
+                    finalError = $"Ошибка установки учебного заведения. HTTP {(int)setFacultyResponse.StatusCode}.";
+                }
+                else if (!string.IsNullOrWhiteSpace(setFacultyPayload?.Message))
+                {
+                    finalError = setFacultyPayload.Message;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(finalError))
+                TempData["Error"] = finalError;
+            else
+                TempData["Success"] = finalSuccess ?? "Операция выполнена успешно.";
+
+            return RedirectToAction(nameof(UserManagement));
+        }
+
+
+        [HttpPost]
+        public async Task<IActionResult> ToggleBlock(int id)
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            await apiClient.PostAsync($"api/admin/users/{id}/toggle-block", null);
+
+            return RedirectToAction(nameof(UserManagement));
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> DeleteUser(int id)
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var response = await apiClient.DeleteAsync($"api/admin/users/{id}");
+            var payload = await response.Content.ReadFromJsonAsync<ApiCommandResponse>();
+            if (payload?.Success == true)
+            {
+                TempData["Success"] = "Пользователь удален.";
+            }
+            else if (!string.IsNullOrWhiteSpace(payload?.Message))
+            {
+                TempData["Error"] = payload.Message;
+            }
+            return RedirectToAction(nameof(UserManagement));
+        }
+
+        public async Task<IActionResult> CreateStaff()
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var lookups = await apiClient.GetFromJsonAsync<CreateUserLookupsResponse>("api/admin/create-staff-lookups")
+                ?? new CreateUserLookupsResponse();
+            ViewBag.Roles = lookups.Roles;
+            ViewBag.Faculties = lookups.Faculties;
+
+            return View();
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> CreateStaff(StaffCreateDto dto)
+        {
+            if (!System.Text.RegularExpressions.Regex.IsMatch(dto.FirstName, @"^[A-Za-zА-Яа-яЁё]+$") ||
+                !System.Text.RegularExpressions.Regex.IsMatch(dto.LastName, @"^[A-Za-zА-Яа-яЁё]+$"))
+            {
+                ModelState.AddModelError("", "Имя и фамилия должны содержать только буквы");
+            }
+
+            var allowedDomains = GetAllowedDomains();
+            if (!IsAllowedEmail(dto.Email, allowedDomains))
+            {
+                ModelState.AddModelError("", BuildEmailValidationMessage(allowedDomains));
+            }
+
+            if (!ModelState.IsValid)
+            {
+                var apiLookups = _httpClientFactory.CreateClient("LibraryApi");
+                var lookups = await apiLookups.GetFromJsonAsync<CreateUserLookupsResponse>("api/admin/create-staff-lookups")
+                    ?? new CreateUserLookupsResponse();
+                ViewBag.Roles = lookups.Roles;
+                ViewBag.Faculties = lookups.Faculties;
+                return View(dto);
+            }
+
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var response = await apiClient.PostAsJsonAsync("api/admin/staff", new CreateStaffRequest { Dto = dto });
+            var body = await response.Content.ReadAsStringAsync();
+            var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            CreateStaffResult? result = null;
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                try
+                {
+                    result = JsonSerializer.Deserialize<CreateStaffResult>(body, jsonOptions);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "CreateStaff: не удалось разобрать ответ API");
+                }
+            }
+
+            if (result?.Success != true)
+            {
+                var detail = result?.Message;
+                if (string.IsNullOrWhiteSpace(detail) && !string.IsNullOrWhiteSpace(body) && body.Length < 500)
+                {
+                    detail = body;
+                }
+
+                TempData["Error"] = !string.IsNullOrWhiteSpace(detail)
+                    ? detail
+                    : $"Не удалось создать сотрудника (код ответа {(int)response.StatusCode}).";
+                return RedirectToAction(nameof(UserManagement));
+            }
+
+            try
+            {
+                var loginUrl = Url.Action("Login", "Account", null, Request.Scheme, Request.Host.ToString());
+                if (string.IsNullOrEmpty(loginUrl))
+                {
+                    TempData["Warning"] = $"Пользователь создан, но не удалось сформировать ссылку для письма. Пароль: {result.GeneratedPassword}";
+                    return RedirectToAction(nameof(UserManagement));
+                }
+
+                await _emailService.SendStaffRegistrationEmailAsync(
+                    dto.Email,
+                    dto.FirstName,
+                    dto.LastName,
+                    dto.Username,
+                    result.GeneratedPassword ?? string.Empty,
+                    result.RoleName ?? "Сотрудник",
+                    loginUrl
+                );
+                _logger.LogInformation("Письмо сотруднику {Email} отправлено через SMTP", dto.Email);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "CreateStaff: SMTP не отправил письмо на {Email}", dto.Email);
+                TempData["Warning"] =
+                    $"Пользователь создан, но письмо не ушло ({ex.Message}). Проверьте настройки SMTP (основной и резервный провайдер) в appsettings. Временный пароль: {result.GeneratedPassword}";
+                return RedirectToAction(nameof(UserManagement));
+            }
+
+            TempData["Success"] =
+                "Сотрудник создан. Если письма нет во «Входящих», проверьте «Спам» и настройки smtp в appsettings.";
+            return RedirectToAction(nameof(UserManagement));
+        }
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> UpdateUserRole(int userId, int roleId)
+        {
+            try
+            {
+                var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+                var response = await apiClient.PostAsJsonAsync("api/admin/users/update-role", new UpdateUserRoleRequest
+                {
+                    UserId = userId,
+                    RoleId = roleId
+                });
+
+                var payload = await response.Content.ReadFromJsonAsync<ApiCommandResponse>();
+                if (payload?.Success == true)
+                {
+                    TempData["Success"] = "Роль пользователя успешно обновлена.";
+                }
+                else
+                {
+                    TempData["Error"] = payload?.Message ?? "Не удалось обновить роль пользователя.";
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при обновлении роли пользователя");
+                TempData["Error"] = "Произошла ошибка при обновлении роли пользователя.";
+            }
+
+            return RedirectToAction(nameof(RoleAssignment));
+        }
+        public override void OnActionExecuting(ActionExecutingContext context)
+        {
+            base.OnActionExecuting(context);
+        }
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ClearAuditLogs()
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            await apiClient.PostAsync("api/admin/clear-audit-logs", null);
+
+            return RedirectToAction(nameof(AuditLog));
+        }
+
+        public async Task<IActionResult> FacultyManagement(string search)
+        {
+            try
+            {
+                var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+                var url = $"api/admin/faculties?search={Uri.EscapeDataString(search ?? string.Empty)}";
+                var response = await apiClient.GetAsync(url);
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    TempData["Error"] = "Не удалось загрузить учебные заведения. Попробуйте позже.";
+                    return View(new List<Faculty>());
+                }
+
+                var faculties = await response.Content.ReadFromJsonAsync<List<Faculty>>()
+                    ?? new List<Faculty>();
+
+            ViewBag.Search = search;
+            return View(faculties);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при загрузке учебных заведений");
+                TempData["Error"] = "Произошла ошибка при загрузке учебных заведений.";
+                return View(new List<Faculty>());
+            }
+        }
+
+        public IActionResult AddFaculty() => View();
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> AddFaculty(Faculty faculty)
+        {
+            if (string.IsNullOrWhiteSpace(faculty.FacultyName))
+            {
+                ModelState.AddModelError("", "Название учебного заведения обязательно");
+                return View(faculty);
+            }
+
+            if (faculty.FacultyName.Length > 200)
+            {
+                ModelState.AddModelError("", "Название учебного заведения не должно превышать 200 символов");
+                return View(faculty);
+            }
+
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var response = await apiClient.PostAsJsonAsync("api/admin/faculties", faculty);
+            var payload = await response.Content.ReadFromJsonAsync<ApiCommandResponse>();
+            if (payload?.Success != true)
+            {
+                ModelState.AddModelError("", payload?.Message ?? "Не удалось добавить учебное заведение.");
+                return View(faculty);
+            }
+
+            TempData["Success"] = "Учебное заведение успешно добавлено.";
+            return RedirectToAction(nameof(FacultyManagement));
+        }
+
+        public async Task<IActionResult> EditFaculty(int id)
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var faculty = await apiClient.GetFromJsonAsync<Faculty>($"api/admin/faculties/{id}");
+
+            if (faculty == null)
+                return NotFound();
+
+            return View(faculty);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> EditFaculty(Faculty faculty)
+        {
+            if (string.IsNullOrWhiteSpace(faculty.FacultyName))
+            {
+                ModelState.AddModelError("", "Название учебного заведения обязательно");
+                return View(faculty);
+            }
+
+            if (faculty.FacultyName.Length > 200)
+            {
+                ModelState.AddModelError("", "Название учебного заведения не должно превышать 200 символов");
+                return View(faculty);
+            }
+
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var response = await apiClient.PutAsJsonAsync($"api/admin/faculties/{faculty.FacultyID}", faculty);
+            var payload = await response.Content.ReadFromJsonAsync<ApiCommandResponse>();
+            if (payload?.Success != true)
+            {
+                ModelState.AddModelError("", payload?.Message ?? "Не удалось обновить учебное заведение.");
+                return View(faculty);
+            }
+
+            TempData["Success"] = "Учебное заведение успешно обновлено.";
+            return RedirectToAction(nameof(FacultyManagement));
+        }
+
+        public async Task<IActionResult> DeleteFaculty(int id)
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var faculty = await apiClient.GetFromJsonAsync<Faculty>($"api/admin/faculties/{id}");
+
+            if (faculty == null)
+                return NotFound();
+
+            return View(faculty);
+        }
+
+        [HttpPost, ActionName("DeleteFaculty")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> DeleteFacultyConfirmed(int id)
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            await apiClient.DeleteAsync($"api/admin/faculties/{id}");
+            TempData["Success"] = "Учебное заведение удалено.";
+            return RedirectToAction(nameof(FacultyManagement));
+        }
+
+        public async Task<IActionResult> RoleManagement(string search)
+        {
+            try
+            {
+                var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+                var url = $"api/admin/roles?search={Uri.EscapeDataString(search ?? string.Empty)}";
+                var response = await apiClient.GetAsync(url);
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    TempData["Error"] = "Не удалось загрузить роли. Попробуйте позже.";
+                    return View(new List<Role>());
+                }
+
+                var roles = await response.Content.ReadFromJsonAsync<List<Role>>()
+                    ?? new List<Role>();
+
+            ViewBag.Search = search;
+            return View(roles);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при загрузке ролей");
+                TempData["Error"] = "Произошла ошибка при загрузке ролей.";
+                return View(new List<Role>());
+            }
+        }
+
+        public IActionResult AddRole() => View();
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> AddRole(Role role)
+        {
+            if (string.IsNullOrWhiteSpace(role.RoleName))
+            {
+                ModelState.AddModelError("", "Название роли обязательно");
+                return View(role);
+            }
+
+            if (role.RoleName.Length > 50)
+            {
+                ModelState.AddModelError("", "Название роли не должно превышать 50 символов");
+                return View(role);
+            }
+
+            if (!System.Text.RegularExpressions.Regex.IsMatch(role.RoleName, @"^[A-Za-zА-Яа-яЁё0-9\s]+$"))
+            {
+                ModelState.AddModelError("", "Название роли должно содержать только буквы, цифры и пробелы");
+                return View(role);
+            }
+
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var response = await apiClient.PostAsJsonAsync("api/admin/roles", role);
+            var payload = await response.Content.ReadFromJsonAsync<ApiCommandResponse>();
+            if (payload?.Success != true)
+            {
+                ModelState.AddModelError("", payload?.Message ?? "Не удалось добавить роль.");
+                return View(role);
+            }
+
+            TempData["Success"] = "Роль успешно добавлена.";
+            return RedirectToAction(nameof(RoleManagement));
+        }
+
+        public async Task<IActionResult> EditRole(int id)
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var role = await apiClient.GetFromJsonAsync<Role>($"api/admin/roles/{id}");
+
+            if (role == null)
+                return NotFound();
+
+            return View(role);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> EditRole(Role role)
+        {
+            if (string.IsNullOrWhiteSpace(role.RoleName))
+            {
+                ModelState.AddModelError("", "Название роли обязательно");
+                return View(role);
+            }
+
+            if (role.RoleName.Length > 50)
+            {
+                ModelState.AddModelError("", "Название роли не должно превышать 50 символов");
+                return View(role);
+            }
+
+            if (!System.Text.RegularExpressions.Regex.IsMatch(role.RoleName, @"^[A-Za-zА-Яа-яЁё0-9\s]+$"))
+            {
+                ModelState.AddModelError("", "Название роли должно содержать только буквы, цифры и пробелы");
+                return View(role);
+            }
+
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var response = await apiClient.PutAsJsonAsync($"api/admin/roles/{role.RoleID}", role);
+            var payload = await response.Content.ReadFromJsonAsync<ApiCommandResponse>();
+            if (payload?.Success != true)
+            {
+                ModelState.AddModelError("", payload?.Message ?? "Не удалось обновить роль.");
+                return View(role);
+            }
+
+            TempData["Success"] = "Роль успешно обновлена.";
+            return RedirectToAction(nameof(RoleManagement));
+        }
+
+        public async Task<IActionResult> DeleteRole(int id)
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var role = await apiClient.GetFromJsonAsync<Role>($"api/admin/roles/{id}");
+
+            if (role == null)
+                return NotFound();
+
+            var usersCount = await apiClient.GetFromJsonAsync<int>($"api/admin/roles/{id}/users-count");
+
+            ViewBag.UsersCount = usersCount;
+
+            return View(role);
+        }
+
+        [HttpPost, ActionName("DeleteRole")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> DeleteRoleConfirmed(int id)
+        {
+            var apiClient = _httpClientFactory.CreateClient("LibraryApi");
+            var response = await apiClient.DeleteAsync($"api/admin/roles/{id}");
+            var payload = await response.Content.ReadFromJsonAsync<ApiCommandResponse>();
+            if (payload?.Success == true)
+            {
+                TempData["Success"] = "Роль удалена.";
+            }
+            else
+            {
+                TempData["Error"] = payload?.Message ?? "Не удалось удалить роль.";
+            }
+            return RedirectToAction(nameof(RoleManagement));
+        }
+
+        private IReadOnlyList<string> GetAllowedDomains()
+        {
+            var configured = _configuration.GetSection("EmailValidation:AllowedDomains").Get<string[]>();
+            var domains = (configured is { Length: > 0 } ? configured : DefaultAllowedDomains)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(NormalizeDomain)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            return domains.Length == 0 ? DefaultAllowedDomains : domains;
+        }
+
+        private static bool IsAllowedEmail(string? email, IReadOnlyList<string> allowedDomains)
+        {
+            if (string.IsNullOrWhiteSpace(email) || allowedDomains.Count == 0)
+                return false;
+
+            var atIndex = email.LastIndexOf('@');
+            if (atIndex <= 0 || atIndex == email.Length - 1)
+                return false;
+
+            var domain = NormalizeDomain(email[(atIndex + 1)..]);
+            return allowedDomains.Any(d => string.Equals(d, domain, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static string BuildEmailValidationMessage(IReadOnlyList<string> allowedDomains)
+            => $"Поддерживаемые почтовые домены: {string.Join(", ", allowedDomains.Select(d => $"@{d}"))}.";
+
+        private static string NormalizeDomain(string value)
+            => value.Trim().TrimStart('@').ToLowerInvariant();
+
+        private static readonly string[] DefaultAllowedDomains =
+        {
+            "gmail.com",
+            "yandex.ru",
+            "ya.ru",
+            "mail.ru",
+            "bk.ru",
+            "inbox.ru",
+            "list.ru",
+            "rambler.ru"
+        };
+
+    }
+}

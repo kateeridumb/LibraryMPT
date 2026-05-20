@@ -1,0 +1,32 @@
+name: library_mpt_mobile_client
+description: Mobile client for the electronic library.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  file_saver: ^0.3.1
+  gal: ^2.3.1
+  http: ^1.2.2
+  open_filex: ^4.7.0
+  path: ^1.9.0
+  pdfx: ^2.9.2
+  path_provider: ^2.1.5
+  provider: ^6.1.2
+  share_plus: ^10.1.4
+  shared_preferences: ^2.3.2
+  webview_flutter: ^4.13.0
+  xml: ^6.5.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
