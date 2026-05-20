@@ -1,4 +1,3 @@
-# Git & IDE
 .git
 .gitignore
 .gitattributes
@@ -6,7 +5,6 @@
 .vscode
 .idea
 
-# Build outputs
 **/bin
 **/obj
 **/out
@@ -18,10 +16,8 @@
 **/[Ll]ogs
 **/[Ll]og
 
-# Tests (не нужны в проде)
 LibraryMPT.Tests
 
-# Мобилка не контейнеризируется
 LibraryMPT.MobileClient/build
 LibraryMPT.MobileClient/.dart_tool
 LibraryMPT.MobileClient/.flutter-plugins
@@ -29,7 +25,6 @@ LibraryMPT.MobileClient/.flutter-plugins-dependencies
 LibraryMPT.MobileClient/ios/Pods
 LibraryMPT.MobileClient/android/.gradle
 
-# Local & secrets
 .env
 .env.local
 *.user
@@ -37,22 +32,17 @@ LibraryMPT.MobileClient/android/.gradle
 appsettings.Local.json
 LibraryMPT.Api/appsettings.Local.json
 
-# OS
 .DS_Store
 Thumbs.db
 
-# Docker (избегаем рекурсивного включения)
 docker-compose*.yml
 Dockerfile*
 .dockerignore
 
-# Deploy artifacts (не должны попасть в образ)
 deploy
 README-DEPLOY.md
 
-# SQL init (монтируется отдельно)
 dbscript.sql
 
-# NuGet
 **/*.nupkg
 **/packages
