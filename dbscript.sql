@@ -547,3 +547,61 @@ CREATE TABLE IF NOT EXISTS subscriptioncategories (
 
 CREATE INDEX IF NOT EXISTS IX_subscriptioncategories_categoryid ON subscriptioncategories(categoryid);
 CREATE INDEX IF NOT EXISTS IX_subscriptioncategories_subscriptionid ON subscriptioncategories(subscriptionid);
+
+
+BEGIN;
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+INSERT INTO users (
+    username,
+    passwordhash,
+    passwordsalt,
+    firstname,
+    lastname,
+    email,
+    roleid,
+    facultyid
+)
+SELECT
+    'admin11',
+    encode(
+        digest(convert_to('haddskHFj1234' || s.pwd_salt, 'UTF8'), 'sha512'),
+        'base64'
+    ),
+    s.pwd_salt,
+    'Администратор',
+    convert_to('', 'UTF8'),
+    'admin@gmail.com',
+    (SELECT roleid FROM roles WHERE rolename = 'Admin' LIMIT 1),
+    NULL
+FROM (SELECT encode(gen_random_bytes(32), 'base64') AS pwd_salt) AS s
+WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = 'admin11');
+
+INSERT INTO users (
+    username,
+    passwordhash,
+    passwordsalt,
+    firstname,
+    lastname,
+    email,
+    roleid,
+    facultyid
+)
+SELECT
+    'librae',
+    encode(
+        digest(convert_to('HghdskhkF44234' || s.pwd_salt, 'UTF8'), 'sha512'),
+        'base64'
+    ),
+    s.pwd_salt,
+    'Библиотекарь',
+    convert_to('', 'UTF8'),
+    'librae@gmail.com',
+    (SELECT roleid FROM roles WHERE rolename = 'Librarian' LIMIT 1),
+    NULL
+FROM (SELECT encode(gen_random_bytes(32), 'base64') AS pwd_salt) AS s
+WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = 'librae');
+
+COMMIT;
+
