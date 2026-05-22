@@ -68,6 +68,38 @@ app.UseMiddleware<LibraryMPT.Middleware.RateLimitingMiddleware>();
 
 app.UseSession();
 
+// На некоторых хостингах (IIS, прокси) к ответу не добавляется charset; браузер на
+// русской Windows тогда часто подставляет windows-1251 и «ломает» UTF-8 (кириллица в
+// Razor и в данных из БД в таблице).
+app.Use(async (context, next) =>
+{
+    context.Response.OnStarting(() =>
+    {
+        var headers = context.Response.GetTypedHeaders();
+        var ct = headers.ContentType;
+        if (ct is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var media = ct.MediaType.Value;
+        // Charset задаётся как StringSegment — не использовать string.IsNullOrEmpty(...)
+        if (string.IsNullOrEmpty(media) || ct.Charset.Length != 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (media.StartsWith("text/html", StringComparison.OrdinalIgnoreCase)
+            || media.Equals("application/json", StringComparison.OrdinalIgnoreCase))
+        {
+            ct.Charset = "utf-8";
+        }
+
+        return Task.CompletedTask;
+    });
+    await next();
+});
+
 
 app.UseExceptionHandler("/Home/Error");
 app.UseStatusCodePagesWithReExecute("/Home/Error", "?statusCode={0}");

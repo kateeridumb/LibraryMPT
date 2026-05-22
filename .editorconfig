@@ -1,0 +1,5 @@
+root = true
+
+# Исключите поломку кириллицы в Razor/CS при деплое: файлы должны быть UTF-8.
+[*.{cs,cshtml,razor,json,resx}]
+charset = utf-8
